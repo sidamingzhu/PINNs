@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 tf.keras.backend.set_floatx("float64")  
 
 # data
-x=np.linspace(-1,1,256)
-y=np.linspace(0,1,128)
+x=np.linspace(-1,1,64)
+y=np.linspace(0,1,32)
 X,Y=np.meshgrid(x,y)  
 V_star=np.vstack((X.flatten(),Y.flatten())).T
 
@@ -30,30 +30,36 @@ np.random.shuffle(V_data)
 np.random.seed(1234)
 np.random.shuffle(U_data)
 
-x_bi_train=V_data[0:256,0:1]
-y_bi_train=V_data[0:256,1:2]
-u_bi_train=U_data[0:256]
+x_bi_train=V_data[0:64,0:1]
+y_bi_train=V_data[0:64,1:2]
+u_bi_train=U_data[0:64]
 
-x_bi_test=V_data[256:512,0:1]
-y_bi_test=V_data[256:512,1:2]
-u_bi_test=U_data[256:512]
+x_bi_test=V_data[64:128,0:1]
+y_bi_test=V_data[64:128,1:2]
+u_bi_test=U_data[64:128]
 
 idx_c=np.where((V_star[:,1]!=0)&(V_star[:,0]!=1.0)&(V_star[:,0]!=-1.0))[0]
 V_c=V_star[idx_c]
 np.random.seed(1234)
 np.random.shuffle(V_c)
-x_c_train=V_c[0:16129,0:1]
-y_c_train=V_c[0:16129,1:2]
+x_c_train=V_c[0:1300,0:1]
+y_c_train=V_c[0:1300,1:2]
 
-x_c_test=V_c[16129:32258,0:1]
-y_c_test=V_c[16129:32258,1:2]
+
+C_data=np.vstack((x_c_train,y_c_train))
+C_data_init=np.random.choice(C_data.shape[0],64,replace=True)
+x_c_train=C_data_init[:,0:1]
+y_c_train=C_data_init[:,1:2]
+
+x_c_test=V_c[1300:1956,0:1]
+y_c_test=V_c[1300:1956,1:2]
 
 x_bi_train,y_bi_train,u_bi_train,x_c_train,y_c_train,x_bi_test,y_bi_test,u_bi_test,x_c_test,y_c_test=map(lambda x: tf.convert_to_tensor(x,dtype=tf.float64),[x_bi_train,y_bi_train,u_bi_train,x_c_train,y_c_train,x_bi_test,y_bi_test,u_bi_test,x_c_test,y_c_test])
 
 # bi_dataset=tf.data.Dataset.from_tensor_slices((x_bi_train,y_bi_train,u_bi_train)).shuffle(buffer_size=256).batch(32)
 
-pde_dataset=tf.data.Dataset.from_tensor_slices((x_c_train,y_c_train)).shuffle(len(x_c_train)).batch(256)
-test_pde_dataset=tf.data.Dataset.from_tensor_slices((x_c_test,y_c_test)).shuffle(len(x_c_test)).batch(1024)
+# pde_dataset=tf.data.Dataset.from_tensor_slices((x_c_train,y_c_train)).shuffle(len(x_c_train)).batch(64)
+# test_pde_dataset=tf.data.Dataset.from_tensor_slices((x_c_test,y_c_test)).shuffle(len(x_c_test)).batch(64)
 # model
 inputs = keras.Input(shape=(2,))
 hidden_layers=[]
@@ -83,8 +89,8 @@ def bi_loss_fun(x,y,u):
     return mse(u_pred,u)
 
 @tf.function
-def pde_loss_fun(pde_batch):
-        x_pde, y_pde = pde_batch
+def pde_loss_fun(x_pde_i, y_pde_i):
+        x_pde, y_pde = x_pde_i, y_pde_i
         with tf.GradientTape(persistent=True) as outer_tape:
             outer_tape.watch([x_pde, y_pde])
             with tf.GradientTape(persistent=True) as inner_tape:
@@ -110,26 +116,24 @@ def pde_loss_fun(pde_batch):
 opt = tf.keras.optimizers.Adam(learning_rate=2e-4)
 epochs = 60000
 
-pde_data=iter(pde_dataset.repeat())
-test_pde_data=iter(test_pde_dataset.repeat())
+# pde_data=iter(pde_dataset.repeat())
+# test_pde_data=iter(test_pde_dataset.repeat())
 
 total_v = []
 test_v=[]
 x_v = []
 
 for epoch in range(epochs):
-    pde_batch=next(pde_data)
     with tf.GradientTape() as tape:
         bi_loss=bi_loss_fun(x_bi_train,y_bi_train,u_bi_train)
-        pde_loss=pde_loss_fun(pde_batch)
+        pde_loss=pde_loss_fun(x_c_train,y_c_train)
         total_loss=bi_loss+pde_loss
 
     grads = tape.gradient(total_loss, model.trainable_weights)
     opt.apply_gradients(zip(grads, model.trainable_weights))
     if epoch % 100 == 0:
-        test_pde_batch=next(test_pde_data)
         test_loss_bi=bi_loss_fun(x_bi_test,y_bi_test,u_bi_test)
-        test_loss_pde=pde_loss_fun(test_pde_batch)
+        test_loss_pde=pde_loss_fun(x_c_test,y_c_test)
         test_total_loss=test_loss_bi+test_loss_pde
         total_loss=total_loss.numpy()
         test_total_loss=test_total_loss.numpy()

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def plot2d(X_star,u_star,pred):
     fig = plt.figure(figsize=[10,3])
     axes = fig.subplots(1,3, sharex=False, sharey=False)
